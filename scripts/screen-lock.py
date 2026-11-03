@@ -1,83 +1,73 @@
 #!/usr/bin/env python3
 """
-Gestor de Bloqueo de Pantalla para Qtile Wayland
-Autor: vmgabriel
-Dependencia: swaylock-effects (recomendado)
+Gestor de bloqueo de pantalla para Qtile Wayland.
+Dependencia: swaylock (paquete swaylock)
+Opcional:    grim (para usar una captura como fondo)
 """
 
-import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+SCREENSHOT = Path("/tmp/qtile-lock.png")
+
 
 class ScreenLocker:
-    def __init__(self) -> None:
-        # Verificar si swaylock está instalado
-        if not self._check_command("swaylock"):
+    def lock(self) -> None:
+        """Ejecuta swaylock con un tema Gruvbox compatible con swaylock estándar."""
+        if shutil.which("swaylock") is None:
             print("❌ Error: 'swaylock' no está instalado.")
-            print("   Instala con: sudo pacman -S swaylock-effects")
+            print("   Instala con: sudo pacman -S swaylock")
             sys.exit(1)
 
-    def _check_command(self, cmd: str) -> bool:
-        """Verifica si un comando existe en el PATH"""
-        try:
-            subprocess.run(["which", cmd], check=True, capture_output=True)
-            return True
-        except subprocess.CalledProcessError:
-            return False
-
-    def lock(self) -> None:
-        """Ejecuta swaylock con tema Gruvbox y efectos"""
-        # Argumentos corregidos: --timestr y --datestr (no --time-format/--date-format)
         args = [
             "swaylock",
-            # Efectos visuales (requiere swaylock-effects)
-            "--effect-blur", "10x5",          # Desenfoque del fondo
-            "--effect-vignette", "0.5:0.5",   # Viñeta oscura en bordes
-            
+            # Colores Gruvbox
+            "--color", "282828cc",
+            "--inside-color", "28282888",
+            "--ring-color", "458588",
+            "--key-hl-color", "98971a",
+            "--line-color", "00000000",
+            "--separator-color", "00000000",
+            "--text-color", "a89984",
             # Indicador
-            "--indicator",                     # Mostrar indicador siempre
             "--indicator-radius", "100",
             "--indicator-thickness", "7",
-            
-            # Colores Gruvbox
-            "--ring-color", "458588",         # Azul (anillo normal)
-            "--key-hl-color", "98971a",       # Verde (al escribir)
-            "--line-color", "00000000",       # Transparente
-            "--inside-color", "28282888",     # Fondo oscuro semi-transparente
-            "--separator-color", "00000000",  # Transparente
-            "--text-color", "a89984",         # Texto claro
-            
             # Tipografía
             "--font", "Noto Sans",
             "--font-size", "24",
-            
-            # Reloj y fecha (argumentos CORREGIDOS)
-            "--clock",                         # Mostrar reloj
-            "--timestr", "%H:%M",             # ✅ Formato de hora
-            "--datestr", "%a, %d %b",         # ✅ Formato de fecha
-            
             # Seguridad
-            "--ignore-empty-password",        # No validar contraseña vacía
-            "--show-failed-attempts"          # Mostrar intentos fallidos
+            "--ignore-empty-password",
+            "--show-failed-attempts",
         ]
+
+        # Si grim está disponible, usamos una captura como fondo.
+        if shutil.which("grim"):
+            try:
+                result = subprocess.run(
+                    ["grim", str(SCREENSHOT)],
+                    capture_output=True,
+                    timeout=5,
+                )
+                if result.returncode == 0 and SCREENSHOT.exists():
+                    args.extend(["--image", str(SCREENSHOT), "--scaling", "fill"])
+            except (OSError, subprocess.SubprocessError):
+                pass
 
         print("🔒 Bloqueando pantalla...")
         try:
             subprocess.run(args, check=True)
             print("✅ Pantalla desbloqueada.")
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Error al ejecutar swaylock (código {e.returncode})")
+        except subprocess.CalledProcessError as exc:
+            print(f"❌ Error al ejecutar swaylock (código {exc.returncode})")
         except KeyboardInterrupt:
             print("\n⚠️  Bloqueo cancelado por el usuario.")
 
 
 def main() -> None:
-    locker = ScreenLocker()
-    locker.lock()
+    ScreenLocker().lock()
 
-    
+
 if __name__ == "__main__":
     main()
-

@@ -10,6 +10,7 @@ import os
 import subprocess
 import json
 import re
+import shutil
 from typing import List
 
 from libqtile import bar, layout, widget, hook, qtile
@@ -76,6 +77,21 @@ def run(cmd: str):
     """Ejecuta un comando en segundo plano."""
     return lazy.spawn(cmd)
 
+def script(name: str) -> str:
+    """Ruta absoluta a un script de la configuración."""
+    return os.path.expanduser(f"~/.config/qtile/scripts/{name}")
+
+def module_available(name: str) -> bool:
+    """Comprueba si un módulo de Python está instalado."""
+    try:
+        __import__(name)
+        return True
+    except ImportError:
+        return False
+
+# dbus-fast es opcional: sin él, StatusNotifier no se puede usar.
+HAS_DBUS_FAST = module_available("dbus_fast")
+
 # Funciones para video wallpapers
 script_video_wallpaper = "~/.config/qtile/scripts/video_wallpaper.py"
 
@@ -96,26 +112,93 @@ def lock_screen():
     qtile.spawn(os.path.expanduser(script_screen_lock))
 
 def execute_daemon_lock_screen() -> None:
+    """Bloqueo por inactividad y apagado de pantalla con swayidle."""
     lock_time_min = 5
     turn_off_display_min = 10
-    
-    subprocess.Popen([
+    lock_cmd = os.path.expanduser(script_screen_lock)
+
+    if not shutil.which("swayidle"):
+        return
+
+    args = [
         "swayidle", "-w",
-        "timeout", str(lock_time_min * 60), os.path.expanduser(script_screen_lock),
-        "timeout", str(turn_off_display_min * 60), "swaymsg 'output * dpms off'",
-        "resume", "swaymsg 'output * dpms on'",
-        "before-sleep", os.path.expanduser(script_screen_lock),
-        "lock", os.path.expanduser(script_screen_lock)
+        "timeout", str(lock_time_min * 60), lock_cmd,
+    ]
+
+    # wlopm es la alternativa Wayland a `swaymsg output * dpms off`.
+    if shutil.which("wlopm"):
+        args.extend([
+            "timeout", str(turn_off_display_min * 60), "wlopm --off '*'",
+            "resume", "wlopm --on '*'",
+        ])
+
+    args.extend([
+        "before-sleep", lock_cmd,
+        "lock", lock_cmd,
     ])
-    
+
+    try:
+        subprocess.Popen(args)
+    except FileNotFoundError:
+        pass
+
+def apply_fallback_wallpaper() -> None:
+    """Usa una imagen fija si todavía no hay videos de wallpaper."""
+    image = os.path.expanduser("~/.config/qtile/screens/qtilechameleon1.png")
+    if shutil.which("swaybg") and os.path.exists(image):
+        subprocess.Popen(
+            ["swaybg", "-i", image, "-m", "fill"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+def has_video_wallpapers() -> bool:
+    video_dir = os.path.expanduser("~/Vídeos/wallpapers")
+    if not os.path.isdir(video_dir):
+        return False
+    extensions = (".mp4", ".webm", ".mkv", ".avi")
+    return any(name.lower().endswith(extensions) for name in os.listdir(video_dir))
+
+def start_clipboard_history() -> None:
+    """Guarda el historial del portapapeles para clipmenu.sh."""
+    if not (shutil.which("cliphist") and shutil.which("wl-paste")):
+        return
+
+    for mime_type in ("text", "image"):
+        subprocess.Popen(
+            ["wl-paste", "--type", mime_type, "--watch", "cliphist", "store"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+def start_notification_daemon() -> None:
+    """Inicia mako si no hay un servidor de notificaciones activo."""
+    if not shutil.which("mako"):
+        return
+
+    running = subprocess.run(
+        ["pgrep", "-x", "mako"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if running.returncode == 0:
+        return
+
+    subprocess.Popen(
+        ["mako"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
 # Atajos personalizados
 htop = run(f"{terminal} -e htop")
-powermenu = run("powermenu")
-sound = run("outputmenu")
-calendar = run(f"{terminal} -e khal interactive")
-timer = run("timermenu")
+powermenu = run(script("powermenu.sh"))
+sound = run(script("outputmenu.sh"))
+calendar = run(script("calendarmenu.sh"))
+timer = run(script("timermenu.sh"))
+clipmenu = run(script("clipmenu.sh"))
 launcher = run("rofi -show drun -show-icons")
-metamenu = run("metamenu")
+metamenu = run(script("metamenu.sh"))
 
 # =============================================================================
 # ⚙️ HOOKS
@@ -124,8 +207,14 @@ metamenu = run("metamenu")
 @hook.subscribe.startup_once
 def autostart() -> None:
     """Inicio de Session"""
-    video_wallpaper_random()
+    if has_video_wallpapers():
+        video_wallpaper_random()
+    else:
+        apply_fallback_wallpaper()
+
     execute_daemon_lock_screen()
+    start_clipboard_history()
+    start_notification_daemon()
 
 # =============================================================================
 # ⌨️ ATAJOS DE TECLADO
@@ -180,7 +269,7 @@ keys = [
     Key([mod], "x", lazy.window.kill(), desc="Cerrar ventana"),
 
     # --- Sistema ---
-    Key([mod], "d", lazy.spawn("dmen"), desc="Cargas Menu Rapido"),
+    Key([mod], "d", lazy.spawn("dmenu_run -i -p 'Ejecutar:'"), desc="Lanzador dmenu"),
     Key([mod], "Return", lazy.spawn(terminal), desc="Abrir terminal"),
     Key([mod], "F12", lazy.group["scratchpad"].dropdown_toggle("term"), desc="Terminal desplegable"),
     Key([mod], "c", lazy.group["scratchpad"].dropdown_toggle("calc"), desc="Calculadora"),
@@ -193,11 +282,11 @@ keys = [
     KeyChord([mod], "q", [
         Key([], "r", lazy.restart(), desc="Reiniciar Qtile"),
         Key([], "q", lazy.shutdown(), desc="Cerrar sesión"),
-        Key([], "c", lazy.spawn("clipmenu"), desc="Portapapeles"),
+        Key([], "c", clipmenu, desc="Portapapeles"),
     ]),
     KeyChord([mod], "a", [
         Key([], "w", lazy.spawn("zen-browser"), desc="Zen Browser"),
-        Key([], "p", lazy.spawn("bitwarden-desktop"), desc="Bitwarden"),
+        Key([], "p", lazy.spawn("bitwarden"), desc="Bitwarden"),
         Key([], "c", lazy.spawn("gcolor3"), desc="Selector de color"),
     ]),
     KeyChord([mod], "m", [
@@ -206,8 +295,8 @@ keys = [
         # ✅ Integración con Swappy para editar antes de guardar/copiar
         Key([], "s", lazy.spawn(os.path.expanduser("~/.config/qtile/scripts/screenshot-area.sh")), desc="Capturar y editar área"),
         Key([], "p", lazy.spawn(os.path.expanduser("~/.config/qtile/scripts/screenshot-full.sh")), desc="Capturar y editar pantalla completa"),
-        Key([], "c", lazy.spawn("calendarmenu"), desc="Calendario"),
-        Key([], "t", lazy.spawn("timermenu"), desc="Temporizador"),
+        Key([], "c", calendar, desc="Calendario"),
+        Key([], "t", timer, desc="Temporizador"),
     ]),
 
     # --- Volumen (PipeWire) ---
@@ -239,7 +328,7 @@ keys = [
     Key([mod, "shift"], "m", lazy.spawn("thunderbird"), desc="Thunderbird"),
     Key([mod], "v", lazy.spawn("vlc"), desc="VLC"),
     Key([mod], "f", lazy.spawn("nautilus"), desc="Archivos"),
-    Key([mod], "o", lazy.spawn("pwvucontrol"), desc="Audio avanzado"),
+    Key([mod], "o", lazy.spawn("pavucontrol"), desc="Audio avanzado"),
 ]
 
 # --- Grupos (workspaces) ---
@@ -291,6 +380,29 @@ widget_defaults = dict(
 )
 extension_defaults = widget_defaults.copy()
 
+bottom_widgets = [
+    widget.TextBox(text="⚡", foreground=ColorB, mouse_callbacks={"Button1": launcher}),
+    widget.WindowName(font="Noto Sans Bold"),
+    widget.GenPollText(
+        func=lambda: subprocess.getoutput("playerctl metadata --format '🎵{{ artist }} - {{ title }}🎵' 2>/dev/null || echo '⏹'"),
+        update_interval=5,
+        foreground=ColorG,
+        max_chars=50,
+    ),
+    widget.CPU(mouse_callbacks={"Button1": htop}),
+    widget.Memory(format="MEM {MemUsed:.0f}{mm}", mouse_callbacks={"Button1": htop}),
+]
+
+# StatusNotifier necesita python-dbus-fast. Si no está instalado se omite
+# para que Qtile no registre errores al iniciar.
+if HAS_DBUS_FAST:
+    bottom_widgets.append(widget.StatusNotifier())
+
+bottom_widgets.extend([
+    widget.CurrentLayout(),
+    widget.TextBox(text="☰", mouse_callbacks={"Button1": metamenu}),
+])
+
 screens = [
     Screen(
         top=bar.Bar(
@@ -315,30 +427,39 @@ screens = [
                 ),
                 widget.Spacer(),
                 widget.TextBox(text="🔊", mouse_callbacks={"Button1": sound}),
-                widget.Volume(),
+                widget.Volume(
+                    get_volume_command="wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | awk '{printf \"%d%%\", $2*100}'",
+                    check_mute_command="wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null",
+                    check_mute_string="MUTED",
+                    volume_up_command="wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
+                    volume_down_command="wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
+                    mute_command="wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+                    volume_app="pavucontrol",
+                ),
+                widget.Battery(
+                    format="{char} {percent:2.0%}",
+                    charge_char="⚡",
+                    discharge_char="🔋",
+                    full_char="🔋",
+                    empty_char="🪫",
+                    not_charging_char="🔌",
+                    unknown_char="?",
+                    low_percentage=0.20,
+                    low_foreground=ColorI,
+                    charging_foreground=ColorB,
+                    show_short_text=False,
+                    update_interval=30,
+                    mouse_callbacks={"Button1": powermenu},
+                ),
                 widget.TextBox(text="⏻", mouse_callbacks={"Button1": powermenu}),
             ],
             size=22,
-            background="#282828",
+            background=ColorZ,
         ),
         bottom=bar.Bar(
-            [
-                widget.TextBox(text="⚡", foreground=ColorB, mouse_callbacks={"Button1": launcher}),
-                widget.WindowName(font="Noto Sans Bold"),
-                widget.GenPollText(
-                    func=lambda: subprocess.getoutput("playerctl metadata --format '🎵{{ artist }} - {{ title }}🎵' 2>/dev/null || echo '⏹'"),
-                    update_interval=5,
-                    foreground=ColorG,
-                    max_chars=50,
-                ),
-                widget.CPU(mouse_callbacks={"Button1": htop}),
-                widget.Memory(format="MEM {MemUsed:.0f}{mm}", mouse_callbacks={"Button1": htop}),
-                widget.StatusNotifier(),
-                widget.CurrentLayout(),
-                widget.TextBox(text="☰", mouse_callbacks={"Button1": metamenu}),
-            ],
+            bottom_widgets,
             size=22,
-            background="#282828",
+            background=ColorZ,
         ),
         # Gaps alrededor de la pantalla
         left=bar.Gap(8),
