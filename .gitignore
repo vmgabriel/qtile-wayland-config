@@ -224,3 +224,6 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/emacs,python
+
+# Paleta generada por scripts/theme-sync.py
+/theme_palette.json

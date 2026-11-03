@@ -28,6 +28,15 @@ check_module() {
     fi
 }
 
+check_wal() {
+    if command -v wal >/dev/null 2>&1 || [ -x "$HOME/.local/bin/wal" ]; then
+        printf '  OK    %-22s (pywal16, instalado con uv)\n' "wal"
+    else
+        printf '  FALTA %-22s (uv tool install pywal16)\n' "wal"
+        missing=1
+    fi
+}
+
 echo "Entorno y ventanas:"
 check_cmd qtile qtile
 check_cmd alacritty alacritty
@@ -59,6 +68,11 @@ check_cmd slurp slurp
 check_cmd swappy swappy
 check_cmd mpvpaper mpvpaper
 check_cmd swaybg swaybg
+check_cmd ffmpeg ffmpeg
+
+echo
+echo "Tema dinámico (pywal + rofi + dmenu):"
+check_wal
 
 echo
 echo "Portapapeles:"

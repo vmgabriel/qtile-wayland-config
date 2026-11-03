@@ -20,6 +20,7 @@ CORE=(
     wl-clipboard
     mpvpaper
     swaybg
+    ffmpeg
     playerctl
     brightnessctl
     pavucontrol
@@ -48,6 +49,17 @@ sudo pacman -S --needed "${CORE[@]}"
 
 echo "==> Instalando aplicaciones de los atajos..."
 sudo pacman -S --needed "${APPS[@]}"
+
+echo
+echo "==> Instalando pywal16 para el tema dinámico (sin sudo)..."
+if ! command -v wal >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/wal" ]; then
+    if command -v uv >/dev/null 2>&1; then
+        uv tool install pywal16
+        uv pip install --python "$HOME/.local/share/uv/tools/pywal16/bin/python" colorthief
+    else
+        echo "  Aviso: instala 'uv' y ejecuta: uv tool install pywal16"
+    fi
+fi
 
 echo
 echo "==> Comprobando dependencias..."

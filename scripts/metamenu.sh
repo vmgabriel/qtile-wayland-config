@@ -14,6 +14,7 @@ choice=$(printf '%s\n' \
     "Captura de área" \
     "Captura de pantalla completa" \
     "Siguiente video wallpaper" \
+    "Regenerar tema (pywal)" \
     "Guía de atajos" \
     "Recargar Qtile" \
     "Bloquear pantalla" \
@@ -26,7 +27,10 @@ case "$choice" in
         rofi -show drun -show-icons
         ;;
     "Lanzador (dmenu)")
-        dmenu_run -i -p "Ejecutar:"
+        exec "$SCRIPTS/dmenu-run-themed"
+        ;;
+    "Regenerar tema (pywal)")
+        exec "$SCRIPTS/theme-sync.py" --refresh --reload
         ;;
     "Calendario")
         exec "$SCRIPTS/calendarmenu.sh"

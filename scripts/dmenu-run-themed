@@ -1,0 +1,15 @@
+#!/bin/sh
+# Lanzador de aplicaciones con dmenu y la paleta dinámica de pywal.
+set -u
+
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+STATE="${XDG_CACHE_HOME:-$HOME/.cache}/qtile/dmenu_colors.sh"
+[ -r "$STATE" ] && . "$STATE"
+: "${DMENU_PROMPT:=Ejecutar:}"
+
+if command -v dmenu_path >/dev/null 2>&1; then
+    dmenu_path | "$DIR/dmenu-themed" -i -p "$DMENU_PROMPT"
+else
+    exec "$DIR/dmenu-themed" -i -p "$DMENU_PROMPT"
+fi

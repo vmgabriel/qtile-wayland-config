@@ -1,0 +1,20 @@
+#!/bin/sh
+# dmenu con la paleta dinámica de pywal (ver theme-sync.py).
+set -u
+
+STATE="${XDG_CACHE_HOME:-$HOME/.cache}/qtile/dmenu_colors.sh"
+[ -r "$STATE" ] && . "$STATE"
+
+: "${DMENU_NB:=#1d2021}"
+: "${DMENU_NF:=#ebdbb2}"
+: "${DMENU_SB:=#d79921}"
+: "${DMENU_SF:=#1d2021}"
+: "${DMENU_FONT:=JetBrainsMono Nerd Font:size=11}"
+
+exec dmenu \
+    -nb "$DMENU_NB" \
+    -nf "$DMENU_NF" \
+    -sb "$DMENU_SB" \
+    -sf "$DMENU_SF" \
+    -fn "$DMENU_FONT" \
+    "$@"

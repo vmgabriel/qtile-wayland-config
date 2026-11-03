@@ -11,6 +11,7 @@ import subprocess
 import json
 import re
 import shutil
+import sys
 from typing import List
 
 from libqtile import bar, layout, widget, hook, qtile
@@ -27,47 +28,53 @@ terminal = "alacritty"
 city_weather_code = "3688689"
 
 # =============================================================================
-# 🎨 COLORES (Gruvbox con fallback)
+# 🎨 COLORES (pywal dinámico con fallback Gruvbox)
 # =============================================================================
+# theme-sync.py escribe theme_palette.json a partir del wallpaper actual.
+# Si el archivo no existe (o pywal falla) se usa esta paleta de respaldo.
 
-default_colors = {
-    "color0": "#282828",  # fondo
-    "color1": "#cc241d",  # rojo
-    "color2": "#98971a",  # verde
-    "color3": "#d79921",  # amarillo
-    "color4": "#458588",  # azul
-    "color5": "#b16286",  # morado
-    "color6": "#689d6a",  # cian
-    "color7": "#a89984",  # texto
-    "color8": "#928374",  # gris
-    "color9": "#fb4934",  # rojo claro
+fallback_palette = {
+    "background": "#1d2021",
+    "surface": "#282828",
+    "surface_alt": "#32302f",
+    "foreground": "#ebdbb2",
+    "muted": "#a89984",
+    "border": "#504945",
+    "accent": "#d79921",
+    "accent2": "#458588",
+    "on_accent": "#1d2021",
+    "urgent": "#fb4934",
+    "success": "#b8bb26",
+    "warning": "#fabd2f",
+    "info": "#83a598",
 }
 
+palette = fallback_palette.copy()
+palette_path = os.path.expanduser("~/.config/qtile/theme_palette.json")
+
 try:
-    colors_path = os.path.expanduser("~/.cache/wal/colors.json")
-    with open(colors_path) as f:
-        colordict = json.load(f)
-    ColorZ = colordict["colors"]["color0"]
-    ColorA = colordict["colors"]["color1"]
-    ColorB = colordict["colors"]["color2"]
-    ColorC = colordict["colors"]["color3"]
-    ColorD = colordict["colors"]["color4"]
-    ColorE = colordict["colors"]["color5"]
-    ColorF = colordict["colors"]["color6"]
-    ColorG = colordict["colors"]["color7"]
-    ColorH = colordict["colors"]["color8"]
-    ColorI = colordict["colors"]["color9"]
-except (FileNotFoundError, KeyError, json.JSONDecodeError):
-    ColorZ = default_colors["color0"]
-    ColorA = default_colors["color1"]
-    ColorB = default_colors["color2"]
-    ColorC = default_colors["color3"]
-    ColorD = default_colors["color4"]
-    ColorE = default_colors["color5"]
-    ColorF = default_colors["color6"]
-    ColorG = default_colors["color7"]
-    ColorH = default_colors["color8"]
-    ColorI = default_colors["color9"]
+    with open(palette_path, encoding="utf-8") as fh:
+        loaded_palette = json.load(fh)
+    # Solo sobrescribimos claves de color; ignoramos metadatos (rutas, timestamps).
+    palette.update(
+        {key: value for key, value in loaded_palette.items() if isinstance(value, str)}
+    )
+except (FileNotFoundError, OSError, json.JSONDecodeError):
+    pass
+
+ColorZ = palette["background"]        # fondo de la barra
+ColorSurface = palette["surface"]     # fondo de widgets destacados
+ColorG = palette["foreground"]        # texto principal
+ColorH = palette["muted"]             # texto secundario
+ColorBorder = palette["border"]       # bordes y separadores
+ColorE = palette["accent"]            # acento principal
+ColorF = palette["accent2"]           # acento secundario
+ColorOnAccent = palette["on_accent"]  # texto sobre el acento
+ColorA = palette["urgent"]            # rojo / urgencias
+ColorI = palette["urgent"]            # rojo / batería baja
+ColorB = palette["success"]           # verde / batería cargando
+ColorC = palette["warning"]           # amarillo / avisos
+ColorD = palette["info"]              # azul / información
 
 # =============================================================================
 # 🚀 FUNCIONES AUXILIARES
@@ -80,6 +87,19 @@ def run(cmd: str):
 def script(name: str) -> str:
     """Ruta absoluta a un script de la configuración."""
     return os.path.expanduser(f"~/.config/qtile/scripts/{name}")
+
+script_theme_sync = "~/.config/qtile/scripts/theme-sync.py"
+
+def theme_sync(*args: str) -> None:
+    """Regenera la paleta (pywal), el tema de rofi y los colores de dmenu."""
+    path = os.path.expanduser(script_theme_sync)
+    if not os.path.exists(path):
+        return
+    subprocess.Popen(
+        [sys.executable, path, *args],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 def module_available(name: str) -> bool:
     """Comprueba si un módulo de Python está instalado."""
@@ -208,9 +228,12 @@ metamenu = run(script("metamenu.sh"))
 def autostart() -> None:
     """Inicio de Session"""
     if has_video_wallpapers():
+        # video_wallpaper.py regenera el tema al aplicar el video.
         video_wallpaper_random()
     else:
         apply_fallback_wallpaper()
+        # Sincroniza pywal/rofi/dmenu con la imagen de respaldo.
+        theme_sync("--if-needed", "--reload")
 
     execute_daemon_lock_screen()
     start_clipboard_history()
@@ -269,7 +292,8 @@ keys = [
     Key([mod], "x", lazy.window.kill(), desc="Cerrar ventana"),
 
     # --- Sistema ---
-    Key([mod], "d", lazy.spawn("dmenu_run -i -p 'Ejecutar:'"), desc="Lanzador dmenu"),
+    Key([mod], "d", lazy.spawn(os.path.expanduser("~/.config/qtile/scripts/dmenu-run-themed")), desc="Lanzador dmenu"),
+    Key([mod, "control"], "y", lazy.spawn(f"{sys.executable} {os.path.expanduser(script_theme_sync)} --refresh --reload"), desc="Regenerar tema desde el wallpaper"),
     Key([mod], "Return", lazy.spawn(terminal), desc="Abrir terminal"),
     Key([mod], "F12", lazy.group["scratchpad"].dropdown_toggle("term"), desc="Terminal desplegable"),
     Key([mod], "c", lazy.group["scratchpad"].dropdown_toggle("calc"), desc="Calculadora"),
@@ -359,38 +383,44 @@ layouts = [
     layout.MonadTall(
         margin=8,
         border_focus=ColorE,
-        border_normal=ColorA,
+        border_normal=ColorH,
         border_width=2,
         ratio=0.6,
     ),
     layout.Bsp(
         margin=8,
         border_focus=ColorE,
-        border_normal=ColorA,
+        border_normal=ColorH,
         border_width=2,
     ),
     layout.Max(),
 ]
 
 widget_defaults = dict(
-    font="Noto Sans",
-    fontsize=13,
-    padding=5,
+    font="JetBrainsMono Nerd Font",
+    fontsize=11,
+    padding=6,
     foreground=ColorG,
 )
 extension_defaults = widget_defaults.copy()
 
 bottom_widgets = [
-    widget.TextBox(text="⚡", foreground=ColorB, mouse_callbacks={"Button1": launcher}),
-    widget.WindowName(font="Noto Sans Bold"),
+    widget.TextBox(text="⚡", foreground=ColorE, mouse_callbacks={"Button1": launcher}),
+    widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
+    widget.WindowName(
+        font="JetBrainsMono Nerd Font Bold",
+        foreground=ColorG,
+        max_chars=70,
+    ),
     widget.GenPollText(
         func=lambda: subprocess.getoutput("playerctl metadata --format '🎵{{ artist }} - {{ title }}🎵' 2>/dev/null || echo '⏹'"),
         update_interval=5,
-        foreground=ColorG,
+        foreground=ColorF,
         max_chars=50,
     ),
-    widget.CPU(mouse_callbacks={"Button1": htop}),
-    widget.Memory(format="MEM {MemUsed:.0f}{mm}", mouse_callbacks={"Button1": htop}),
+    widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
+    widget.CPU(format="CPU {load_percent:2.0f}%", foreground=ColorD, mouse_callbacks={"Button1": htop}),
+    widget.Memory(format="MEM {MemUsed:.0f}{mm}", foreground=ColorD, mouse_callbacks={"Button1": htop}),
 ]
 
 # StatusNotifier necesita python-dbus-fast. Si no está instalado se omite
@@ -399,8 +429,10 @@ if HAS_DBUS_FAST:
     bottom_widgets.append(widget.StatusNotifier())
 
 bottom_widgets.extend([
-    widget.CurrentLayout(),
-    widget.TextBox(text="☰", mouse_callbacks={"Button1": metamenu}),
+    widget.Spacer(),
+    widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
+    widget.CurrentLayout(foreground=ColorH),
+    widget.TextBox(text="☰", foreground=ColorE, mouse_callbacks={"Button1": metamenu}),
 ])
 
 screens = [
@@ -409,25 +441,40 @@ screens = [
             [
                 widget.GroupBox(
                     highlight_method="line",
-                    urgent_border=ColorF,
+                    line_width=2,
+                    borderwidth=2,
+                    urgent_border=ColorA,
+                    urgent_text=ColorA,
                     active=ColorG,
-                    inactive=ColorB,
-                    this_current_screen_border=ColorC,
+                    inactive=ColorH,
+                    this_current_screen_border=ColorE,
+                    this_screen_border=ColorH,
+                    other_current_screen_border=ColorF,
+                    other_screen_border=ColorBorder,
+                    padding_x=8,
+                    padding_y=4,
+                    margin_x=2,
+                    disable_drag=True,
                 ),
+                widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
                 widget.Spacer(),
                 widget.Clock(
                     format="%a %b %d",
-                    font="Noto Sans Bold",
+                    font="JetBrainsMono Nerd Font Bold",
+                    foreground=ColorH,
                     mouse_callbacks={"Button1": calendar}
                 ),
+                widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
                 widget.Clock(
                     format="%I:%M %p",
-                    font="Noto Sans Bold",
+                    font="JetBrainsMono Nerd Font Bold",
+                    foreground=ColorG,
                     mouse_callbacks={"Button1": timer}
                 ),
                 widget.Spacer(),
-                widget.TextBox(text="🔊", mouse_callbacks={"Button1": sound}),
+                widget.TextBox(text="🔊", foreground=ColorE, mouse_callbacks={"Button1": sound}),
                 widget.Volume(
+                    foreground=ColorG,
                     get_volume_command="wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | awk '{printf \"%d%%\", $2*100}'",
                     check_mute_command="wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null",
                     check_mute_string="MUTED",
@@ -436,6 +483,7 @@ screens = [
                     mute_command="wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
                     volume_app="pavucontrol",
                 ),
+                widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
                 widget.Battery(
                     format="{char} {percent:2.0%}",
                     charge_char="⚡",
@@ -447,19 +495,28 @@ screens = [
                     low_percentage=0.20,
                     low_foreground=ColorI,
                     charging_foreground=ColorB,
+                    foreground=ColorG,
                     show_short_text=False,
                     update_interval=30,
                     mouse_callbacks={"Button1": powermenu},
                 ),
-                widget.TextBox(text="⏻", mouse_callbacks={"Button1": powermenu}),
+                widget.TextBox(text="⏻", foreground=ColorE, mouse_callbacks={"Button1": powermenu}),
             ],
-            size=22,
+            size=26,
             background=ColorZ,
+            opacity=0.94,
+            margin=[6, 6, 0, 6],
+            border_width=1,
+            border_color=ColorBorder,
         ),
         bottom=bar.Bar(
             bottom_widgets,
-            size=22,
+            size=24,
             background=ColorZ,
+            opacity=0.94,
+            margin=[0, 6, 6, 6],
+            border_width=1,
+            border_color=ColorBorder,
         ),
         # Gaps alrededor de la pantalla
         left=bar.Gap(8),
@@ -479,7 +536,7 @@ mouse = [
 
 floating_layout = layout.Floating(
     border_focus=ColorE,
-    border_normal=ColorA,
+    border_normal=ColorH,
     float_rules=[
         *layout.Floating.default_float_rules,
         Match(wm_class="confirmreset"),

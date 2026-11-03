@@ -24,6 +24,7 @@ Super+d : Lanzador dmenu
 Super+m luego Space : Lanzador rofi
 Super+Delete : Bloquear pantalla
 Super+Ctrl+r : Recargar configuración
+Super+Ctrl+y : Regenerar tema (pywal) desde el wallpaper
 Super+Shift+w : Video wallpaper aleatorio
 Super+Ctrl+w : Siguiente video wallpaper
 Super+Ctrl+Shift+w : Detener video wallpaper

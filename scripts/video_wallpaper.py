@@ -85,8 +85,22 @@ class VideoWallpaperManager:
         
         # Guardar video actual
         self.current_wp_file.write_text(str(video))
+
+        # Regenerar pywal/rofi/dmenu con un frame de este video y recargar Qtile.
+        self.sync_theme()
         
         return video.name
+
+    def sync_theme(self) -> None:
+        """Sincroniza la paleta con el wallpaper en segundo plano."""
+        sync = Path("~/.config/qtile/scripts/theme-sync.py").expanduser()
+        if not sync.exists():
+            return
+        subprocess.Popen(
+            [sys.executable, str(sync), "--refresh", "--reload"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     
     def stop(self):
         """Detiene el video wallpaper"""
