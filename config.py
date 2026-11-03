@@ -163,8 +163,8 @@ keys = [
         desc="Detener video wallpaper"),
 
     # --- Capturas de Pantalla con Swappy (Atajos rápidos) ---
-    Key([mod, "shift"], "s", lazy.spawn('grim -g "$(slurp)" - | swappy -f -'), desc="Capturar y editar área"),
-    Key([mod, "shift"], "p", lazy.spawn('grim - | swappy -f -'), desc="Capturar y editar pantalla completa"),
+    Key([mod, "shift"], "s", lazy.spawn(os.path.expanduser("~/.config/qtile/scripts/screenshot-area.sh")), desc="Capturar y editar área"),
+    Key([mod, "shift"], "p", lazy.spawn(os.path.expanduser("~/.config/qtile/scripts/screenshot-full.sh")), desc="Capturar y editar pantalla completa"),
 
     # --- Bloqueo de Pantalla ---
     Key([mod], "Delete", lazy.function(lock_screen), desc="Bloquear pantalla"),
@@ -182,7 +182,7 @@ keys = [
     # --- Sistema ---
     Key([mod], "d", lazy.spawn("dmen"), desc="Cargas Menu Rapido"),
     Key([mod], "Return", lazy.spawn(terminal), desc="Abrir terminal"),
-    Key([mod], "quoteleft", lazy.group["scratchpad"].dropdown_toggle("term"), desc="Terminal desplegable"),
+    Key([mod], "F12", lazy.group["scratchpad"].dropdown_toggle("term"), desc="Terminal desplegable"),
     Key([mod], "c", lazy.group["scratchpad"].dropdown_toggle("calc"), desc="Calculadora"),
     Key([mod], "n", lazy.group["scratchpad"].dropdown_toggle("notes"), desc="Notas"),
 
@@ -202,10 +202,10 @@ keys = [
     ]),
     KeyChord([mod], "m", [
         Key([], "space", launcher, desc="Lanzador"),
-        Key([], "h", lazy.spawn("hotkey"), desc="Guía de atajos"),
+        Key([], "h", lazy.spawn(os.path.expanduser("~/.config/qtile/scripts/show-hotkeys.sh")), desc="Guía de atajos"),
         # ✅ Integración con Swappy para editar antes de guardar/copiar
-        Key([], "s", lazy.spawn('grim -g "$(slurp)" - | swappy -f -'), desc="Capturar y editar área"),
-        Key([], "p", lazy.spawn('grim - | swappy -f -'), desc="Capturar y editar pantalla completa"),
+        Key([], "s", lazy.spawn(os.path.expanduser("~/.config/qtile/scripts/screenshot-area.sh")), desc="Capturar y editar área"),
+        Key([], "p", lazy.spawn(os.path.expanduser("~/.config/qtile/scripts/screenshot-full.sh")), desc="Capturar y editar pantalla completa"),
         Key([], "c", lazy.spawn("calendarmenu"), desc="Calendario"),
         Key([], "t", lazy.spawn("timermenu"), desc="Temporizador"),
     ]),
@@ -239,7 +239,7 @@ keys = [
     Key([mod, "shift"], "m", lazy.spawn("thunderbird"), desc="Thunderbird"),
     Key([mod], "v", lazy.spawn("vlc"), desc="VLC"),
     Key([mod], "f", lazy.spawn("nautilus"), desc="Archivos"),
-    Key([mod], "o", lazy.spawn("pavucontrol"), desc="Audio avanzado"),
+    Key([mod], "o", lazy.spawn("pwvucontrol"), desc="Audio avanzado"),
 ]
 
 # --- Grupos (workspaces) ---
@@ -247,7 +247,7 @@ groups = [
     ScratchPad("scratchpad", [
         DropDown("term", terminal, opacity=0.95),
         DropDown("calc", "qalculate-gtk", opacity=0.95),
-        DropDown("notes", "emacsclient -nw -Q -c -e '(org-agenda-list)'", opacity=0.95),
+        DropDown("notes", f"{terminal} -e emacs -nw ~/notes.md", opacity=0.95),
     ]),
     Group("I", layout="monadtall", matches=[Match(wm_class=re.compile(r"^(qutebrowser|Thunderbird|liferea)$"))]),
     Group("II", layout="monadtall", matches=[Match(wm_class=re.compile(r"^(vlc|gpodder)$"))]),
