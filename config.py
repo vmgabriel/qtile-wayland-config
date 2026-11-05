@@ -4,6 +4,9 @@ Configuración Qtile para Wayland - Versión Final con Swappy
 Autor: vmgabriel
 Entorno: Arch Linux + Wayland
 Fecha: 2026-09-19
+
+Soporta portátil y escritorio mediante la flag MACHINE_TYPE
+("portatil" / "escritorio" / "auto") definida más abajo.
 """
 
 import os
@@ -26,6 +29,43 @@ from libqtile.utils import guess_terminal
 mod = "mod4"
 terminal = "alacritty"
 city_weather_code = "3688689"
+
+# =============================================================================
+# 💻 TIPO DE EQUIPO (flag portátil / escritorio)
+# =============================================================================
+# Cambia esta flag según el equipo donde se ejecute Qtile:
+#   "portatil"   -> laptop: widget de batería, brillo del panel integrado,
+#                   bloqueo/suspensión agresivos, una sola pantalla.
+#   "escritorio" -> PC de escritorio: sin batería, brillo por DDC/CI (ddcutil),
+#                   tiempos de bloqueo más largos, soporte multimonitor con
+#                   hot-plug (reconfigure_screens).
+#   "auto"       -> autodetecta según la presencia de una batería real.
+MACHINE_TYPE = "escritorio"
+
+# Número de monitores esperados en modo escritorio (en portátil se ignora).
+# Si conectas/desconectas monitores, Qtile se reconfigura solo gracias a
+# reconfigure_screens = True.
+DESKTOP_MONITORS = 1
+
+def detect_is_laptop() -> bool:
+    """Detecta si el equipo tiene batería real (portátil)."""
+    power_supply_dir = "/sys/class/power_supply"
+    if not os.path.isdir(power_supply_dir):
+        return False
+    for entry in os.listdir(power_supply_dir):
+        type_file = os.path.join(power_supply_dir, entry, "type")
+        try:
+            with open(type_file, encoding="utf-8") as fh:
+                if fh.read().strip().lower() == "battery":
+                    return True
+        except OSError:
+            continue
+    return False
+
+if MACHINE_TYPE == "auto":
+    IS_LAPTOP = detect_is_laptop()
+else:
+    IS_LAPTOP = MACHINE_TYPE == "portatil"
 
 # =============================================================================
 # 🎨 COLORES (pywal dinámico con fallback Gruvbox)
@@ -133,8 +173,14 @@ def lock_screen():
 
 def execute_daemon_lock_screen() -> None:
     """Bloqueo por inactividad y apagado de pantalla con swayidle."""
-    lock_time_min = 5
-    turn_off_display_min = 10
+    if IS_LAPTOP:
+        # Portátil: bloqueo y apagado de pantalla más agresivos para ahorrar batería.
+        lock_time_min = 5
+        turn_off_display_min = 10
+    else:
+        # Escritorio: tiempos más relajados (no hay batería que cuidar).
+        lock_time_min = 15
+        turn_off_display_min = 30
     lock_cmd = os.path.expanduser(script_screen_lock)
 
     if not shutil.which("swayidle"):
@@ -220,6 +266,19 @@ clipmenu = run(script("clipmenu.sh"))
 launcher = run("rofi -show drun -show-icons")
 metamenu = run(script("metamenu.sh"))
 
+# Brillo de pantalla según el tipo de equipo:
+#   - Portátil: retroiluminación integrada con brightnessctl.
+#   - Escritorio: monitores externos vía DDC/CI con ddcutil (si está instalado).
+if IS_LAPTOP:
+    brightness_up_cmd = "brightnessctl set +5%"
+    brightness_down_cmd = "brightnessctl set 5%-"
+elif shutil.which("ddcutil"):
+    brightness_up_cmd = "ddcutil setvcp 10 + 10"
+    brightness_down_cmd = "ddcutil setvcp 10 - 10"
+else:
+    brightness_up_cmd = ""
+    brightness_down_cmd = ""
+
 # =============================================================================
 # ⚙️ HOOKS
 # =============================================================================
@@ -264,7 +323,7 @@ keys = [
     Key([mod, "control"], "k", lazy.layout.grow_up(), desc="Expandir arriba"),
 
     # --- Video Wallpapers ---
-    Key([mod, "shift"], "w", 
+    Key([mod, "shift"], "w",
         lazy.spawn(os.path.expanduser("~/.config/qtile/scripts/video_wallpaper.py random")),
         desc="Video wallpaper aleatorio"),
     Key([mod, "control"], "w",
@@ -336,10 +395,6 @@ keys = [
     Key([], "XF86AudioNext", lazy.spawn("playerctl next"), desc="Siguiente"),
     Key([], "XF86AudioPrev", lazy.spawn("playerctl previous"), desc="Anterior"),
 
-    # --- Brillo de pantalla ---
-    Key([], "XF86MonBrightnessUp", lazy.spawn("brightnessctl set +5%"), desc="Brillo +"),
-    Key([], "XF86MonBrightnessDown", lazy.spawn("brightnessctl set 5%-"), desc="Brillo -"),
-
     # --- Multimedia (playerctl) ---
     Key([mod], "comma", lazy.spawn("playerctl previous"), desc="Anterior"),
     Key([mod], "period", lazy.spawn("playerctl next"), desc="Siguiente"),
@@ -354,6 +409,13 @@ keys = [
     Key([mod], "f", lazy.spawn("nautilus"), desc="Archivos"),
     Key([mod], "o", lazy.spawn("pavucontrol"), desc="Audio avanzado"),
 ]
+
+# --- Brillo de pantalla (solo si el equipo tiene comando válido) ---
+# En escritorio sin ddcutil instalado estas teclas simplemente no se registran.
+if brightness_up_cmd:
+    keys.append(Key([], "XF86MonBrightnessUp", lazy.spawn(brightness_up_cmd), desc="Brillo +"))
+if brightness_down_cmd:
+    keys.append(Key([], "XF86MonBrightnessDown", lazy.spawn(brightness_down_cmd), desc="Brillo -"))
 
 # --- Grupos (workspaces) ---
 groups = [
@@ -404,104 +466,119 @@ widget_defaults = dict(
 )
 extension_defaults = widget_defaults.copy()
 
-bottom_widgets = [
-    widget.TextBox(text="⚡", foreground=ColorE, mouse_callbacks={"Button1": launcher}),
-    widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
-    widget.WindowName(
-        font="JetBrainsMono Nerd Font Bold",
-        foreground=ColorG,
-        max_chars=70,
-    ),
-    widget.GenPollText(
-        func=lambda: subprocess.getoutput("playerctl metadata --format '🎵{{ artist }} - {{ title }}🎵' 2>/dev/null || echo '⏹'"),
-        update_interval=5,
-        foreground=ColorF,
-        max_chars=50,
-    ),
-    widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
-    widget.CPU(format="CPU {load_percent:2.0f}%", foreground=ColorD, mouse_callbacks={"Button1": htop}),
-    widget.Memory(format="MEM {MemUsed:.0f}{mm}", foreground=ColorD, mouse_callbacks={"Button1": htop}),
-]
+def build_bottom_widgets() -> list:
+    """Widgets de la barra inferior (instancias nuevas por pantalla)."""
+    widgets = [
+        widget.TextBox(text="⚡", foreground=ColorE, mouse_callbacks={"Button1": launcher}),
+        widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
+        widget.WindowName(
+            font="JetBrainsMono Nerd Font Bold",
+            foreground=ColorG,
+            max_chars=70,
+        ),
+        widget.GenPollText(
+            func=lambda: subprocess.getoutput("playerctl metadata --format '🎵{{ artist }} - {{ title }}🎵' 2>/dev/null || echo '⏹'"),
+            update_interval=5,
+            foreground=ColorF,
+            max_chars=50,
+        ),
+        widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
+        widget.CPU(format="CPU {load_percent:2.0f}%", foreground=ColorD, mouse_callbacks={"Button1": htop}),
+        widget.Memory(format="MEM {MemUsed:.0f}{mm}", foreground=ColorD, mouse_callbacks={"Button1": htop}),
+    ]
 
-# StatusNotifier necesita python-dbus-fast. Si no está instalado se omite
-# para que Qtile no registre errores al iniciar.
-if HAS_DBUS_FAST:
-    bottom_widgets.append(widget.StatusNotifier())
+    # StatusNotifier necesita python-dbus-fast. Si no está instalado se omite
+    # para que Qtile no registre errores al iniciar.
+    if HAS_DBUS_FAST:
+        widgets.append(widget.StatusNotifier())
 
-bottom_widgets.extend([
-    widget.Spacer(),
-    widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
-    widget.CurrentLayout(foreground=ColorH),
-    widget.TextBox(text="☰", foreground=ColorE, mouse_callbacks={"Button1": metamenu}),
-])
+    widgets.extend([
+        widget.Spacer(),
+        widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
+        widget.CurrentLayout(foreground=ColorH),
+        widget.TextBox(text="☰", foreground=ColorE, mouse_callbacks={"Button1": metamenu}),
+    ])
+    return widgets
 
-screens = [
-    Screen(
+def build_top_widgets() -> list:
+    """Widgets de la barra superior (instancias nuevas por pantalla)."""
+    widgets = [
+        widget.GroupBox(
+            highlight_method="line",
+            line_width=2,
+            borderwidth=2,
+            urgent_border=ColorA,
+            urgent_text=ColorA,
+            active=ColorG,
+            inactive=ColorH,
+            this_current_screen_border=ColorE,
+            this_screen_border=ColorH,
+            other_current_screen_border=ColorF,
+            other_screen_border=ColorBorder,
+            padding_x=8,
+            padding_y=4,
+            margin_x=2,
+            disable_drag=True,
+        ),
+        widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
+        widget.Spacer(),
+        widget.Clock(
+            format="%a %b %d",
+            font="JetBrainsMono Nerd Font Bold",
+            foreground=ColorH,
+            mouse_callbacks={"Button1": calendar}
+        ),
+        widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
+        widget.Clock(
+            format="%I:%M %p",
+            font="JetBrainsMono Nerd Font Bold",
+            foreground=ColorG,
+            mouse_callbacks={"Button1": timer}
+        ),
+        widget.Spacer(),
+        widget.TextBox(text="🔊", foreground=ColorE, mouse_callbacks={"Button1": sound}),
+        widget.Volume(
+            foreground=ColorG,
+            get_volume_command="wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | awk '{printf \"%d%%\", $2*100}'",
+            check_mute_command="wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null",
+            check_mute_string="MUTED",
+            volume_up_command="wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
+            volume_down_command="wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
+            mute_command="wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+            volume_app="pavucontrol",
+        ),
+        widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
+    ]
+
+    # El widget de batería solo tiene sentido en un portátil.
+    if IS_LAPTOP:
+        widgets.append(widget.Battery(
+            format="{char} {percent:2.0%}",
+            charge_char="⚡",
+            discharge_char="🔋",
+            full_char="🔋",
+            empty_char="🪫",
+            not_charging_char="🔌",
+            unknown_char="?",
+            low_percentage=0.20,
+            low_foreground=ColorI,
+            charging_foreground=ColorB,
+            foreground=ColorG,
+            show_short_text=False,
+            update_interval=30,
+            mouse_callbacks={"Button1": powermenu},
+        ))
+
+    widgets.append(
+        widget.TextBox(text="⏻", foreground=ColorE, mouse_callbacks={"Button1": powermenu})
+    )
+    return widgets
+
+def build_screen() -> Screen:
+    """Crea una pantalla con sus barras (se reutiliza para multimonitor)."""
+    return Screen(
         top=bar.Bar(
-            [
-                widget.GroupBox(
-                    highlight_method="line",
-                    line_width=2,
-                    borderwidth=2,
-                    urgent_border=ColorA,
-                    urgent_text=ColorA,
-                    active=ColorG,
-                    inactive=ColorH,
-                    this_current_screen_border=ColorE,
-                    this_screen_border=ColorH,
-                    other_current_screen_border=ColorF,
-                    other_screen_border=ColorBorder,
-                    padding_x=8,
-                    padding_y=4,
-                    margin_x=2,
-                    disable_drag=True,
-                ),
-                widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
-                widget.Spacer(),
-                widget.Clock(
-                    format="%a %b %d",
-                    font="JetBrainsMono Nerd Font Bold",
-                    foreground=ColorH,
-                    mouse_callbacks={"Button1": calendar}
-                ),
-                widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
-                widget.Clock(
-                    format="%I:%M %p",
-                    font="JetBrainsMono Nerd Font Bold",
-                    foreground=ColorG,
-                    mouse_callbacks={"Button1": timer}
-                ),
-                widget.Spacer(),
-                widget.TextBox(text="🔊", foreground=ColorE, mouse_callbacks={"Button1": sound}),
-                widget.Volume(
-                    foreground=ColorG,
-                    get_volume_command="wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | awk '{printf \"%d%%\", $2*100}'",
-                    check_mute_command="wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null",
-                    check_mute_string="MUTED",
-                    volume_up_command="wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
-                    volume_down_command="wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
-                    mute_command="wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
-                    volume_app="pavucontrol",
-                ),
-                widget.Sep(linewidth=1, padding=8, foreground=ColorBorder),
-                widget.Battery(
-                    format="{char} {percent:2.0%}",
-                    charge_char="⚡",
-                    discharge_char="🔋",
-                    full_char="🔋",
-                    empty_char="🪫",
-                    not_charging_char="🔌",
-                    unknown_char="?",
-                    low_percentage=0.20,
-                    low_foreground=ColorI,
-                    charging_foreground=ColorB,
-                    foreground=ColorG,
-                    show_short_text=False,
-                    update_interval=30,
-                    mouse_callbacks={"Button1": powermenu},
-                ),
-                widget.TextBox(text="⏻", foreground=ColorE, mouse_callbacks={"Button1": powermenu}),
-            ],
+            build_top_widgets(),
             size=26,
             background=ColorZ,
             opacity=0.94,
@@ -510,7 +587,7 @@ screens = [
             border_color=ColorBorder,
         ),
         bottom=bar.Bar(
-            bottom_widgets,
+            build_bottom_widgets(),
             size=24,
             background=ColorZ,
             opacity=0.94,
@@ -522,7 +599,11 @@ screens = [
         left=bar.Gap(8),
         right=bar.Gap(8),
     )
-]
+
+# En escritorio se declaran varias pantallas para multimonitor; los monitores
+# sobrantes se asignan/desasignan solos gracias a reconfigure_screens = True.
+num_screens = 1 if IS_LAPTOP else DESKTOP_MONITORS
+screens = [build_screen() for _ in range(num_screens)]
 
 # =============================================================================
 # 🖱️ MOUSE Y COMPORTAMIENTO
@@ -570,7 +651,8 @@ bring_front_click = False
 cursor_warp = False
 auto_fullscreen = True
 focus_on_window_activation = "smart"
-reconfigure_screens = False
+# En escritorio, True permite reaccionar al conectar/desconectar monitores.
+reconfigure_screens = not IS_LAPTOP
 auto_minimize = False
 wmname = "LG3D"
 
