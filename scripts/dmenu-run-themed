@@ -1,5 +1,7 @@
 #!/bin/sh
 # Lanzador de aplicaciones con dmenu y la paleta dinámica de pywal.
+# Lista las apps, muestra el menú temático y EJECUTA la selección
+# (equivalente a dmenu_run, pero con los colores de theme-sync.py).
 set -u
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -8,8 +10,26 @@ STATE="${XDG_CACHE_HOME:-$HOME/.cache}/qtile/dmenu_colors.sh"
 [ -r "$STATE" ] && . "$STATE"
 : "${DMENU_PROMPT:=Ejecutar:}"
 
-if command -v dmenu_path >/dev/null 2>&1; then
-    dmenu_path | "$DIR/dmenu-themed" -i -p "$DMENU_PROMPT"
-else
-    exec "$DIR/dmenu-themed" -i -p "$DMENU_PROMPT"
-fi
+# Lista de aplicaciones disponibles:
+#   - Se prefiere dmenu_path (usa la caché ~/.cache/dmenu_run).
+#   - Si no existe, se listan los ejecutables de $PATH directamente.
+list_apps() {
+    if command -v dmenu_path >/dev/null 2>&1; then
+        dmenu_path
+    else
+        IFS=:
+        for dir in $PATH; do
+            [ -d "$dir" ] || continue
+            find "$dir" -maxdepth 1 -type f -perm -u+x -printf '%f\n' 2>/dev/null
+        done
+        unset IFS
+    fi
+}
+
+choice=$(list_apps | "$DIR/dmenu-themed" -i -p "$DMENU_PROMPT")
+
+# Si se cerró el menú sin elegir nada, terminar.
+[ -n "$choice" ] || exit 0
+
+# Ejecutar la selección en segundo plano (lo que dmenu_run hace con `| sh`).
+printf '%s\n' "$choice" | ${SHELL:-/bin/sh} >/dev/null 2>&1 &
